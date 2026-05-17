@@ -1,8 +1,17 @@
+import os
+from datetime import datetime, timezone
+from html import escape
+
 from flask import Flask, request, render_template_string
-from datetime import datetime
+from supabase import create_client
 
 app = Flask(__name__)
 visitors = []
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+SUPABASE_TABLE = os.getenv("SUPABASE_TABLE", "visitor_logs")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 PAGE = """
 <!DOCTYPE html>
@@ -264,25 +273,46 @@ def home():
 @app.route("/collect", methods=["POST"])
 def collect():
 
-    data = request.json
+    data = request.get_json(silent=True) or {}
 
-    data["ip"] = request.headers.get(
-        "X-Forwarded-For",
-        request.remote_addr
-    )
+    payload = {
+        "user_agent": data.get("userAgent"),
+        "platform": data.get("platform"),
+        "language": data.get("language"),
+        "screen": data.get("screen"),
+        "timezone": data.get("timezone"),
+        "ip": request.headers.get(
+            "X-Forwarded-For",
+            request.remote_addr
+        ),
+        "collected_at": datetime.now(timezone.utc).isoformat()
+    }
 
-    data["time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if supabase:
+        supabase.table(SUPABASE_TABLE).insert(payload).execute()
+    else:
+        visitors.append(payload)
 
-    visitors.append(data)
-
-    print(data)
+    print(payload)
 
     return {"status":"saved"}
 
 @app.route("/admin")
 def admin():
 
-    if not visitors:
+    if supabase:
+        response = (
+            supabase.table(SUPABASE_TABLE)
+            .select("*")
+            .order("collected_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        logs_data = response.data or []
+    else:
+        logs_data = list(reversed(visitors))
+
+    if not logs_data:
 
         logs = "<div class='empty'>No visitor logs yet.</div>"
 
@@ -290,25 +320,25 @@ def admin():
 
         logs = ""
 
-        for v in reversed(visitors):
+        for v in logs_data:
 
             logs += f"""
 
             <div class="log">
 
-            <p><span class="label">Time:</span> {v.get('time')}</p>
+            <p><span class="label">Time:</span> {escape(str(v.get('collected_at', '')))}</p>
 
-            <p><span class="label">IP:</span> {v.get('ip')}</p>
+            <p><span class="label">IP:</span> {escape(str(v.get('ip', '')))}</p>
 
-            <p><span class="label">Device:</span> {v.get('userAgent')}</p>
+            <p><span class="label">Device:</span> {escape(str(v.get('user_agent', '')))}</p>
 
-            <p><span class="label">Platform:</span> {v.get('platform')}</p>
+            <p><span class="label">Platform:</span> {escape(str(v.get('platform', '')))}</p>
 
-            <p><span class="label">Screen:</span> {v.get('screen')}</p>
+            <p><span class="label">Screen:</span> {escape(str(v.get('screen', '')))}</p>
 
-            <p><span class="label">Language:</span> {v.get('language')}</p>
+            <p><span class="label">Language:</span> {escape(str(v.get('language', '')))}</p>
 
-            <p><span class="label">Timezone:</span> {v.get('timezone')}</p>
+            <p><span class="label">Timezone:</span> {escape(str(v.get('timezone', '')))}</p>
 
             </div>
 
