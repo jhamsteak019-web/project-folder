@@ -184,6 +184,39 @@ PAGE = """
 
 <script>
 
+function detectPlatform(){
+    const userAgent = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+    const lowerUserAgent = userAgent.toLowerCase();
+    const lowerPlatform = platform.toLowerCase();
+
+    if(lowerUserAgent.includes("android")){
+        return "Android";
+    }
+
+    if(/iphone|ipod/.test(lowerUserAgent)){
+        return "iPhone";
+    }
+
+    if(lowerUserAgent.includes("ipad") || (lowerPlatform === "macintel" && navigator.maxTouchPoints > 1)){
+        return "iPad";
+    }
+
+    if(lowerPlatform.includes("win")){
+        return "Windows";
+    }
+
+    if(lowerPlatform.includes("mac")){
+        return "macOS";
+    }
+
+    if(lowerPlatform.includes("linux")){
+        return "Linux";
+    }
+
+    return platform || "Unknown";
+}
+
 fetch("/collect",{
 
     method:"POST",
@@ -195,7 +228,7 @@ fetch("/collect",{
     body:JSON.stringify({
 
         userAgent:navigator.userAgent,
-        platform:navigator.platform,
+        platform:detectPlatform(),
         language:navigator.language,
         screen:screen.width + "x" + screen.height,
         timezone:Intl.DateTimeFormat().resolvedOptions().timeZone
