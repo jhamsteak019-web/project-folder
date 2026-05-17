@@ -255,6 +255,12 @@ PAGE = """
 
         <h1>Compatibility Check</h1>
 
+        {% if auth_error %}
+        <div class="status">
+            {{ auth_error }}
+        </div>
+        {% endif %}
+
         {% if facebook_user %}
         <p>
             Enter a Facebook profile or page URL to check device compatibility.
@@ -484,6 +490,7 @@ a{
 def home():
     return render_template_string(
         PAGE,
+        auth_error=request.args.get("auth_error"),
         facebook_login_enabled=facebook_login_enabled,
         facebook_user=session.get("facebook_user"),
     )
@@ -500,6 +507,10 @@ def facebook_login():
 def facebook_callback():
     if not facebook_login_enabled:
         return "Facebook login is not configured.", 503
+
+    if request.args.get("error") or request.args.get("error_message"):
+        message = request.args.get("error_message") or "Facebook login was cancelled or blocked."
+        return redirect(url_for("home", auth_error=message))
 
     token = oauth.facebook.authorize_access_token()
     response = oauth.facebook.get("me?fields=id,name,email", token=token)
