@@ -539,6 +539,18 @@ def data_deletion():
 
     return render_template_string(LEGAL_PAGE, title="User Data Deletion", body=body)
 
+@app.route("/terms")
+def terms():
+    body = """
+    <h1>Terms of Service</h1>
+    <p>By using Device Check, you agree to submit only information that you are authorized to provide.</p>
+    <p>The app may ask you to sign in with Facebook and may store profile details that Facebook shares after your consent, along with submitted Facebook URLs and device information.</p>
+    <p>This service is provided for basic device check and logging purposes. Do not use it for unauthorized access, impersonation, or collection of another person's private information.</p>
+    <p>If you do not agree with these terms, do not use the app.</p>
+    """
+
+    return render_template_string(LEGAL_PAGE, title="Terms of Service", body=body)
+
 def is_facebook_url(value):
     parsed = urlparse(value or "")
     hostname = (parsed.hostname or "").lower()

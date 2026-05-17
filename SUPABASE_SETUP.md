@@ -23,6 +23,9 @@ Use these URLs in the Meta app basic settings:
 Privacy policy URL:
 https://project-folder-six-nu.vercel.app/privacy
 
+Terms of Service URL:
+https://project-folder-six-nu.vercel.app/terms
+
 User data deletion instructions URL:
 https://project-folder-six-nu.vercel.app/data-deletion
 ```
