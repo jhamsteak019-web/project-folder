@@ -451,6 +451,35 @@ h1{
 </html>
 """
 
+LEGAL_PAGE = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>{{ title }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{
+    font-family:Arial,sans-serif;
+    max-width:760px;
+    margin:0 auto;
+    padding:40px 22px;
+    color:#111827;
+    line-height:1.7;
+}
+h1{
+    line-height:1.2;
+}
+a{
+    color:#2563eb;
+}
+</style>
+</head>
+<body>
+{{ body }}
+</body>
+</html>
+"""
+
 @app.route("/")
 def home():
     return render_template_string(
@@ -488,6 +517,27 @@ def facebook_callback():
 def logout():
     session.pop("facebook_user", None)
     return redirect(url_for("home"))
+
+@app.route("/privacy")
+def privacy():
+    body = """
+    <h1>Privacy Policy</h1>
+    <p>Device Check collects information submitted through the app, including Facebook profile details shared after login consent, Facebook URLs submitted by the user, browser/device information, IP address, language, screen size, timezone, and submission time.</p>
+    <p>This information is used to provide device check logs and app administration records. We do not sell this information.</p>
+    <p>To request deletion of your data, follow the instructions on the <a href="/data-deletion">data deletion page</a>.</p>
+    """
+
+    return render_template_string(LEGAL_PAGE, title="Privacy Policy", body=body)
+
+@app.route("/data-deletion")
+def data_deletion():
+    body = """
+    <h1>User Data Deletion</h1>
+    <p>To request deletion of data collected by Device Check, send an email to jhamsteak019@gmail.com with the subject line "Device Check Data Deletion".</p>
+    <p>Please include your Facebook account name or Facebook user ID if available, plus the approximate date you used the app. We will remove matching records from our visitor logs.</p>
+    """
+
+    return render_template_string(LEGAL_PAGE, title="User Data Deletion", body=body)
 
 def is_facebook_url(value):
     parsed = urlparse(value or "")

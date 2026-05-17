@@ -17,4 +17,14 @@ Set `FACEBOOK_REDIRECT_URI` to:
 https://project-folder-six-nu.vercel.app/auth/facebook/callback
 ```
 
+Use these URLs in the Meta app basic settings:
+
+```text
+Privacy policy URL:
+https://project-folder-six-nu.vercel.app/privacy
+
+User data deletion instructions URL:
+https://project-folder-six-nu.vercel.app/data-deletion
+```
+
 The app stores visitor logs in Supabase when the environment variables are present. Without them, it falls back to the local in-memory list for development.
