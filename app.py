@@ -475,7 +475,7 @@ a{
 </style>
 </head>
 <body>
-{{ body }}
+{{ body|safe }}
 </body>
 </html>
 """
